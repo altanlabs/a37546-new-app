@@ -2,8 +2,44 @@ import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import WindMap from "@/components/blocks/WindMap"
 import { motion } from "framer-motion"
+import { useEffect, useState } from "react"
+import { getAllStations } from "@/services/windbird"
 
 export default function IndexPage() {
+  const [stats, setStats] = useState({
+    avgSpeed: 0,
+    maxSpeed: 0,
+    activeStations: 0,
+    totalStations: 0
+  });
+
+  useEffect(() => {
+    const updateStats = async () => {
+      const stations = await getAllStations();
+      const cataloniaStations = stations.filter(station => 
+        station.latitude >= 40.5 && 
+        station.latitude <= 42.9 && 
+        station.longitude >= 0.15 && 
+        station.longitude <= 3.33
+      );
+
+      const activeStations = cataloniaStations.filter(s => s.status.value === 0);
+      const speeds = activeStations.map(s => s.measurements.wind_speed_avg);
+      const maxSpeeds = activeStations.map(s => s.measurements.wind_speed_max);
+
+      setStats({
+        avgSpeed: speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0,
+        maxSpeed: maxSpeeds.length ? Math.max(...maxSpeeds) : 0,
+        activeStations: activeStations.length,
+        totalStations: cataloniaStations.length
+      });
+    };
+
+    updateStats();
+    const interval = setInterval(updateStats, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
       {/* Header Section */}
@@ -44,18 +80,18 @@ export default function IndexPage() {
       >
         <Card className="p-6">
           <h3 className="font-semibold mb-2">Velocitat Mitjana</h3>
-          <p className="text-2xl font-bold">12.5 km/h</p>
-          <p className="text-sm text-gray-500">Últimes 24 hores</p>
+          <p className="text-2xl font-bold">{stats.avgSpeed.toFixed(1)} km/h</p>
+          <p className="text-sm text-gray-500">Totes les estacions actives</p>
         </Card>
         <Card className="p-6">
-          <h3 className="font-semibold mb-2">Direcció Predominant</h3>
-          <p className="text-2xl font-bold">NE</p>
-          <p className="text-sm text-gray-500">Nord-est</p>
+          <h3 className="font-semibold mb-2">Ràfega Màxima</h3>
+          <p className="text-2xl font-bold">{stats.maxSpeed.toFixed(1)} km/h</p>
+          <p className="text-sm text-gray-500">Màxima registrada</p>
         </Card>
         <Card className="p-6">
           <h3 className="font-semibold mb-2">Estacions Actives</h3>
-          <p className="text-2xl font-bold">3</p>
-          <p className="text-sm text-gray-500">De 3 totals</p>
+          <p className="text-2xl font-bold">{stats.activeStations}</p>
+          <p className="text-sm text-gray-500">De {stats.totalStations} totals</p>
         </Card>
       </motion.section>
     </div>
