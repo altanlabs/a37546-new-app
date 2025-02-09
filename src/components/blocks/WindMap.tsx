@@ -1,8 +1,16 @@
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Icon } from 'leaflet';
+import { Icon, DivIcon } from 'leaflet';
 import { useEffect, useState } from 'react';
-import { getAllStations } from '@/services/windbird';
+import { 
+  getAllStations, 
+  WindbirdLocation,
+  getWindDirection,
+  getStatusText,
+  getStatusColor,
+  getWindDescription
+} from '@/services/windbird';
+import { Card } from '@/components/ui/card';
 
 // Fix for default marker icon
 const defaultIcon = new Icon({
@@ -12,37 +20,30 @@ const defaultIcon = new Icon({
   iconAnchor: [12, 41],
 });
 
-interface WindbirdStation {
-  id: number;
-  latitude: number;
-  longitude: number;
-  name: string;
-  measurements: {
-    wind_heading: number;
-    wind_speed_avg: number;
-    wind_speed_max: number;
-    wind_speed_min: number;
-    date: string;
-  };
-  status: {
-    value: number;
-    date: string;
-  };
-}
+// Funció per crear l'indicador de direcció del vent
+const createWindDirectionMarker = (heading: number) => {
+  return new DivIcon({
+    html: `<div style="transform: rotate(${heading}deg);">➤</div>`,
+    className: 'wind-direction-marker',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10]
+  });
+};
 
 export default function WindMap() {
-  const [stations, setStations] = useState<WindbirdStation[]>([]);
+  const [stations, setStations] = useState<WindbirdLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
 
-  // Center of Catalonia
+  // Centre de Catalunya
   const center: [number, number] = [41.8183, 1.8276];
 
   useEffect(() => {
     const fetchStations = async () => {
       try {
         const data = await getAllStations();
-        // Filter stations in Catalonia (approximate bounding box)
+        // Filtrar estacions de Catalunya (bbox aproximat)
         const cataloniaStations = data.filter(station => 
           station.latitude >= 40.5 && 
           station.latitude <= 42.9 && 
@@ -50,6 +51,7 @@ export default function WindMap() {
           station.longitude <= 3.33
         );
         setStations(cataloniaStations);
+        setLastUpdate(new Date());
         setLoading(false);
       } catch (err) {
         setError('Error carregant les estacions Windbird');
@@ -64,19 +66,15 @@ export default function WindMap() {
     return () => clearInterval(interval);
   }, []);
 
-  const getStatusColor = (status: number) => {
-    switch (status) {
-      case 0:
-        return 'bg-green-500';
-      case 1:
-        return 'bg-yellow-500';
-      default:
-        return 'bg-red-500';
-    }
-  };
-
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('ca-ES');
+    return new Date(dateString).toLocaleString('ca-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
   };
 
   if (loading) {
@@ -101,50 +99,84 @@ export default function WindMap() {
   }
 
   return (
-    <div className="h-[600px] w-full rounded-lg overflow-hidden shadow-lg">
-      <MapContainer 
-        center={center} 
-        zoom={8} 
-        style={{ height: '100%', width: '100%' }}
-      >
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        />
-        {stations.map((station) => (
-          <Marker
-            key={station.id}
-            position={[station.latitude, station.longitude]}
-            icon={defaultIcon}
-          >
-            <Popup>
-              <div className="p-2">
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="font-bold">{station.name}</h3>
-                  <span className={`w-3 h-3 rounded-full ${getStatusColor(station.status.value)}`}></span>
-                </div>
-                <div className="space-y-1 text-sm">
-                  <p>
-                    <span className="font-semibold">Velocitat mitjana:</span>{' '}
-                    {station.measurements.wind_speed_avg.toFixed(1)} km/h
-                  </p>
-                  <p>
-                    <span className="font-semibold">Ràfega màxima:</span>{' '}
-                    {station.measurements.wind_speed_max.toFixed(1)} km/h
-                  </p>
-                  <p>
-                    <span className="font-semibold">Direcció:</span>{' '}
-                    {station.measurements.wind_heading}°
-                  </p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Última actualització: {formatDate(station.measurements.date)}
-                  </p>
-                </div>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
+    <div className="space-y-4">
+      <div className="h-[600px] w-full rounded-lg overflow-hidden shadow-lg">
+        <MapContainer 
+          center={center} 
+          zoom={8} 
+          style={{ height: '100%', width: '100%' }}
+        >
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          />
+          {stations.map((station) => (
+            <Marker
+              key={station.id}
+              position={[station.latitude, station.longitude]}
+              icon={defaultIcon}
+            >
+              <Popup>
+                <Card className="p-4">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-lg">{station.name}</h3>
+                      <span 
+                        className={`px-2 py-1 rounded-full text-xs text-white ${getStatusColor(station.status.value)}`}
+                      >
+                        {getStatusText(station.status.value)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm">
+                        <span className="font-semibold">Ubicació:</span>{' '}
+                        {station.location_name || 'No disponible'}
+                      </p>
+                      <p className="text-sm">
+                        <span className="font-semibold">Altitud:</span>{' '}
+                        {station.elevation}m
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm">
+                        <span className="font-semibold">Velocitat mitjana:</span>{' '}
+                        {station.measurements.wind_speed_avg.toFixed(1)} km/h
+                      </p>
+                      <p className="text-sm">
+                        <span className="font-semibold">Ràfega màxima:</span>{' '}
+                        {station.measurements.wind_speed_max.toFixed(1)} km/h
+                      </p>
+                      <p className="text-sm">
+                        <span className="font-semibold">Direcció:</span>{' '}
+                        {station.measurements.wind_heading}° ({getWindDirection(station.measurements.wind_heading)})
+                      </p>
+                      <p className="text-sm">
+                        <span className="font-semibold">Condicions:</span>{' '}
+                        {getWindDescription(station.measurements.wind_speed_avg)}
+                      </p>
+                      {station.measurements.pressure && (
+                        <p className="text-sm">
+                          <span className="font-semibold">Pressió:</span>{' '}
+                          {station.measurements.pressure} hPa
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="text-xs text-gray-500">
+                      <p>Última actualització: {formatDate(station.measurements.date)}</p>
+                    </div>
+                  </div>
+                </Card>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+      </div>
+      <div className="text-right text-sm text-gray-500">
+        Última actualització: {lastUpdate.toLocaleString('ca-ES')}
+      </div>
     </div>
   );
 }
